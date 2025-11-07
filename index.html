@@ -1,53 +1,18 @@
 <!doctype html>
 <html>
-
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Phone Movement Direction (Less Sensitive)</title>
   <style>
-    body {
-      font-family: system-ui, -apple-system, Roboto, sans-serif;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      align-items: center;
-      padding: 20px;
-    }
-
-    .box {
-      width: 260px;
-      height: 260px;
-      border-radius: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border: 2px solid #222;
-    }
-
-    .dir {
-      font-size: 32px;
-      font-weight: 700;
-    }
-
-    .vals {
-      font-family: monospace;
-      white-space: pre;
-      text-align: left;
-    }
-
-    button {
-      padding: 10px 14px;
-      font-size: 16px;
-    }
-
-    #controls {
-      display: flex;
-      gap: 10px;
-    }
+    body { font-family: system-ui, -apple-system, Roboto, sans-serif; display:flex; flex-direction:column; gap:12px; align-items:center; padding:20px; }
+    .box { width:260px; height:260px; border-radius:12px; display:flex; align-items:center; justify-content:center; border:2px solid #222; }
+    .dir { font-size:32px; font-weight:700; }
+    .vals { font-family: monospace; white-space:pre; text-align:left; }
+    button { padding:10px 14px; font-size:16px; }
+    #controls { display:flex; gap:10px; }
   </style>
 </head>
-
 <body>
   <h2>Movement direction (less sensitive)</h2>
   <div id="controls">
@@ -59,120 +24,119 @@
   </div>
   <div class="vals" id="vals">waiting…</div>
 
-  <script>
-    (() => {
-      const startBtn = document.getElementById('start');
-      const stopBtn = document.getElementById('stop');
-      const dirEl = document.getElementById('direction');
-      const vals = document.getElementById('vals');
+<script>
+(() => {
+  const startBtn = document.getElementById('start');
+  const stopBtn = document.getElementById('stop');
+  const dirEl = document.getElementById('direction');
+  const vals = document.getElementById('vals');
 
-      let motionListener = null;
-      let running = false;
+  let motionListener = null;
+  let running = false;
 
-      // Gravity estimate
-      let gravity = { x: 0, y: 0, z: 0 };
-      const alpha = 0.97; // smoother (less responsive) gravity filter
+  // Gravity estimate
+  let gravity = { x: 0, y: 0, z: 0 };
+  const alpha = 0.97; // smoother (less responsive) gravity filter
 
-      // Less sensitive threshold
-      let threshold = 1.0; // m/s^2 (raise to require stronger movement)
+  // Less sensitive threshold
+  let threshold = 1.0; // m/s^2 (raise to require stronger movement)
 
-      // Debounce
-      let lastDir = null;
-      let lastChange = 0;
-      const debounceMs = 300;
+  // Debounce
+  let lastDir = null;
+  let lastChange = 0;
+  const debounceMs = 300;
 
-      function classify(linear) {
-        const ax = linear.x, ay = linear.y, az = linear.z;
-        const absX = Math.abs(ax), absY = Math.abs(ay), absZ = Math.abs(az);
-        const now = Date.now();
+  function classify(linear) {
+    const ax = linear.x, ay = linear.y, az = linear.z;
+    const absX = Math.abs(ax), absY = Math.abs(ay), absZ = Math.abs(az);
+    const now = Date.now();
 
-        if (absX < threshold && absY < threshold && absZ < threshold) {
-          if (now - lastChange > debounceMs) {
-            lastDir = 'still';
-            dirEl.textContent = 'still';
-          }
-          return;
-        }
-
-        let dir = 'unknown';
-        if (absX >= absY && absX >= absZ) {
-          dir = ax > 0 ? 'right' : 'left';
-        } else if (absY >= absX && absY >= absZ) {
-          dir = ay > 0 ? 'down' : 'up';
-        } else {
-          dir = az > 0 ? 'toward you' : 'away';
-        }
-
-        if (dir !== lastDir && now - lastChange > debounceMs) {
-          lastDir = dir;
-          lastChange = now;
-          dirEl.textContent = dir;
-        }
+    if (absX < threshold && absY < threshold && absZ < threshold) {
+      if (now - lastChange > debounceMs) {
+        lastDir = 'still';
+        dirEl.textContent = 'still';
       }
+      return;
+    }
 
-      function onMotion(e) {
-        const acc = e.acceleration && e.acceleration.x !== null
-          ? e.acceleration
-          : e.accelerationIncludingGravity;
-        if (!acc) return;
+    let dir = 'unknown';
+    if (absX >= absY && absX >= absZ) {
+      dir = ax > 0 ? 'right' : 'left';
+    } else if (absY >= absX && absY >= absZ) {
+      dir = ay > 0 ? 'down' : 'up';
+    } else {
+      dir = az > 0 ? 'toward you' : 'away';
+    }
 
-        gravity.x = alpha * gravity.x + (1 - alpha) * (acc.x || 0);
-        gravity.y = alpha * gravity.y + (1 - alpha) * (acc.y || 0);
-        gravity.z = alpha * gravity.z + (1 - alpha) * (acc.z || 0);
+    if (dir !== lastDir && now - lastChange > debounceMs) {
+      lastDir = dir;
+      lastChange = now;
+      dirEl.textContent = dir;
+    }
+  }
 
-        const lin = {
-          x: (acc.x || 0) - gravity.x,
-          y: (acc.y || 0) - gravity.y,
-          z: (acc.z || 0) - gravity.z
-        };
+  function onMotion(e) {
+    const acc = e.acceleration && e.acceleration.x !== null
+      ? e.acceleration
+      : e.accelerationIncludingGravity;
+    if (!acc) return;
 
-        vals.textContent =
-          `acc: x:${(acc.x || 0).toFixed(2)} y:${(acc.y || 0).toFixed(2)} z:${(acc.z || 0).toFixed(2)}\n` +
-          `lin: x:${lin.x.toFixed(2)} y:${lin.y.toFixed(2)} z:${lin.z.toFixed(2)}\n` +
-          `threshold: ${threshold.toFixed(2)} m/s²`;
+    gravity.x = alpha * gravity.x + (1 - alpha) * (acc.x || 0);
+    gravity.y = alpha * gravity.y + (1 - alpha) * (acc.y || 0);
+    gravity.z = alpha * gravity.z + (1 - alpha) * (acc.z || 0);
 
-        classify(lin);
-      }
+    const lin = {
+      x: (acc.x || 0) - gravity.x,
+      y: (acc.y || 0) - gravity.y,
+      z: (acc.z || 0) - gravity.z
+    };
 
-      function startSensors() {
-        if (running) return;
-        running = true;
-        const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent);
-        const attach = () => {
-          motionListener = onMotion;
-          window.addEventListener('devicemotion', motionListener, { passive: true });
-          startBtn.disabled = true;
-          stopBtn.disabled = false;
-          dirEl.textContent = '—';
-        };
-        if (isIOS && typeof DeviceMotionEvent?.requestPermission === 'function') {
-          DeviceMotionEvent.requestPermission()
-            .then(res => {
-              if (res === 'granted') attach();
-              else alert('Permission denied for device motion.');
-            })
-            .catch(err => alert('DeviceMotion permission error: ' + err));
-        } else {
-          attach();
-        }
-      }
+    vals.textContent =
+      `acc: x:${(acc.x||0).toFixed(2)} y:${(acc.y||0).toFixed(2)} z:${(acc.z||0).toFixed(2)}\n` +
+      `lin: x:${lin.x.toFixed(2)} y:${lin.y.toFixed(2)} z:${lin.z.toFixed(2)}\n` +
+      `threshold: ${threshold.toFixed(2)} m/s²`;
 
-      function stopSensors() {
-        if (!running) return;
-        running = false;
-        if (motionListener) {
-          window.removeEventListener('devicemotion', motionListener);
-          motionListener = null;
-        }
-        startBtn.disabled = false;
-        stopBtn.disabled = true;
-        dirEl.textContent = 'stopped';
-      }
+    classify(lin);
+  }
 
-      startBtn.addEventListener('click', startSensors);
-      stopBtn.addEventListener('click', stopSensors);
-    })();
-  </script>
+  function startSensors() {
+    if (running) return;
+    running = true;
+    const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent);
+    const attach = () => {
+      motionListener = onMotion;
+      window.addEventListener('devicemotion', motionListener, { passive: true });
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      dirEl.textContent = '—';
+    };
+    if (isIOS && typeof DeviceMotionEvent?.requestPermission === 'function') {
+      DeviceMotionEvent.requestPermission()
+        .then(res => {
+          if (res === 'granted') attach();
+          else alert('Permission denied for device motion.');
+        })
+        .catch(err => alert('DeviceMotion permission error: ' + err));
+    } else {
+      attach();
+    }
+  }
+
+  function stopSensors() {
+    if (!running) return;
+    running = false;
+    if (motionListener) {
+      window.removeEventListener('devicemotion', motionListener);
+      motionListener = null;
+    }
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    dirEl.textContent = 'stopped';
+  }
+
+  startBtn.addEventListener('click', startSensors);
+  stopBtn.addEventListener('click', stopSensors);
+})();
+</script>
 </body>
-
 </html>
