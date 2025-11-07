@@ -3,51 +3,55 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Phone movement direction</title>
+  <title>Phone Movement Direction (Less Sensitive)</title>
   <style>
     body { font-family: system-ui, -apple-system, Roboto, sans-serif; display:flex; flex-direction:column; gap:12px; align-items:center; padding:20px; }
     .box { width:260px; height:260px; border-radius:12px; display:flex; align-items:center; justify-content:center; border:2px solid #222; }
     .dir { font-size:32px; font-weight:700; }
     .vals { font-family: monospace; white-space:pre; text-align:left; }
     button { padding:10px 14px; font-size:16px; }
+    #controls { display:flex; gap:10px; }
   </style>
 </head>
 <body>
-  <h2>Movement direction (demo)</h2>
-  <button id="start">Start sensors / Request permission</button>
+  <h2>Movement direction (less sensitive)</h2>
+  <div id="controls">
+    <button id="start">Start sensors / Request permission</button>
+    <button id="stop" disabled>Stop</button>
+  </div>
   <div class="box">
     <div class="dir" id="direction">—</div>
   </div>
-  <div class="vals" id="vals">acc: x:0.00 y:0.00 z:0.00
-lin: x:0.00 y:0.00 z:0.00
-threshold: 0.35 m/s²</div>
+  <div class="vals" id="vals">waiting…</div>
 
 <script>
 (() => {
   const startBtn = document.getElementById('start');
+  const stopBtn = document.getElementById('stop');
   const dirEl = document.getElementById('direction');
   const vals = document.getElementById('vals');
 
-  // gravity estimate for low-pass filter
+  let motionListener = null;
+  let running = false;
+
+  // Gravity estimate
   let gravity = { x: 0, y: 0, z: 0 };
-  const alpha = 0.9; // low-pass factor (0..1). Larger -> slower gravity updates.
+  const alpha = 0.97; // smoother (less responsive) gravity filter
 
-  // threshold (tune this)
-  let threshold = 0.35; // m/s^2
+  // Less sensitive threshold
+  let threshold = 1.0; // m/s^2 (raise to require stronger movement)
 
-  // last detection time to avoid flicker
+  // Debounce
   let lastDir = null;
   let lastChange = 0;
-  const debounceMs = 200;
+  const debounceMs = 300;
 
   function classify(linear) {
-    // Choose dominant axis (absolute value)
     const ax = linear.x, ay = linear.y, az = linear.z;
     const absX = Math.abs(ax), absY = Math.abs(ay), absZ = Math.abs(az);
     const now = Date.now();
 
     if (absX < threshold && absY < threshold && absZ < threshold) {
-      // essentially no movement
       if (now - lastChange > debounceMs) {
         lastDir = 'still';
         dirEl.textContent = 'still';
@@ -55,19 +59,15 @@ threshold: 0.35 m/s²</div>
       return;
     }
 
-    // pick the largest component (you can prefer x/y only)
     let dir = 'unknown';
     if (absX >= absY && absX >= absZ) {
       dir = ax > 0 ? 'right' : 'left';
     } else if (absY >= absX && absY >= absZ) {
-      // Note: depending on device orientation, y sign might mean up or down.
       dir = ay > 0 ? 'down' : 'up';
     } else {
-      // z is forward/back (out of the screen)
-      dir = az > 0 ? 'towards you' : 'away';
+      dir = az > 0 ? 'toward you' : 'away';
     }
 
-    // debounce
     if (dir !== lastDir && now - lastChange > debounceMs) {
       lastDir = dir;
       lastChange = now;
@@ -76,63 +76,66 @@ threshold: 0.35 m/s²</div>
   }
 
   function onMotion(e) {
-    // accelerationIncludingGravity is supported on many devices.
-    // Try to use e.acceleration if available (it has gravity removed in some browsers).
-    const acc = e.acceleration && e.acceleration.x !== null ? e.acceleration : e.accelerationIncludingGravity;
+    const acc = e.acceleration && e.acceleration.x !== null
+      ? e.acceleration
+      : e.accelerationIncludingGravity;
     if (!acc) return;
 
-    // low-pass filter to estimate gravity: gravity = alpha*gravity + (1-alpha)*acc
     gravity.x = alpha * gravity.x + (1 - alpha) * (acc.x || 0);
     gravity.y = alpha * gravity.y + (1 - alpha) * (acc.y || 0);
     gravity.z = alpha * gravity.z + (1 - alpha) * (acc.z || 0);
 
-    // linear acceleration (remove gravity estimate)
     const lin = {
       x: (acc.x || 0) - gravity.x,
       y: (acc.y || 0) - gravity.y,
       z: (acc.z || 0) - gravity.z
     };
 
-    // show numbers (rounded)
     vals.textContent =
       `acc: x:${(acc.x||0).toFixed(2)} y:${(acc.y||0).toFixed(2)} z:${(acc.z||0).toFixed(2)}\n` +
       `lin: x:${lin.x.toFixed(2)} y:${lin.y.toFixed(2)} z:${lin.z.toFixed(2)}\n` +
-      `threshold: ${threshold.toFixed(2)} m/s²\n` +
-      `note: if direction mapping is inverted on your device, invert sign in classify()`;
+      `threshold: ${threshold.toFixed(2)} m/s²`;
 
     classify(lin);
   }
 
   function startSensors() {
-    // iOS 13+ requires a user gesture and explicit permission.
+    if (running) return;
+    running = true;
     const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent);
-    if (isIOS && typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-      DeviceMotionEvent.requestPermission().then(resp => {
-        if (resp === 'granted') {
-          window.addEventListener('devicemotion', onMotion, { passive: true });
-          startBtn.disabled = true;
-          startBtn.textContent = 'Running';
-        } else {
-          alert('Permission denied for device motion.');
-        }
-      }).catch(err => {
-        alert('DeviceMotion permission error: ' + err);
-      });
-    } else {
-      // non-iOS: just start listening (must be on secure context for some browsers)
-      window.addEventListener('devicemotion', onMotion, { passive: true });
+    const attach = () => {
+      motionListener = onMotion;
+      window.addEventListener('devicemotion', motionListener, { passive: true });
       startBtn.disabled = true;
-      startBtn.textContent = 'Running';
+      stopBtn.disabled = false;
+      dirEl.textContent = '—';
+    };
+    if (isIOS && typeof DeviceMotionEvent?.requestPermission === 'function') {
+      DeviceMotionEvent.requestPermission()
+        .then(res => {
+          if (res === 'granted') attach();
+          else alert('Permission denied for device motion.');
+        })
+        .catch(err => alert('DeviceMotion permission error: ' + err));
+    } else {
+      attach();
     }
   }
 
-  startBtn.addEventListener('click', startSensors, { once: true });
+  function stopSensors() {
+    if (!running) return;
+    running = false;
+    if (motionListener) {
+      window.removeEventListener('devicemotion', motionListener);
+      motionListener = null;
+    }
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    dirEl.textContent = 'stopped';
+  }
 
-  // optional: provide simple calibration helpers via keyboard (for desktop testing)
-  window.addEventListener('keydown', e => {
-    if (e.key === '+' || e.key === '=') { threshold = Math.max(0.05, threshold - 0.05); }
-    if (e.key === '-') { threshold += 0.05; }
-  });
+  startBtn.addEventListener('click', startSensors);
+  stopBtn.addEventListener('click', stopSensors);
 })();
 </script>
 </body>
