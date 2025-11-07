@@ -71,10 +71,10 @@
 
       // Gravity estimate
       let gravity = { x: 0, y: 0, z: 0 };
-      const alpha = 1.5; // smoother (less responsive) gravity filter
+      const alpha = 0.97; // smoother (less responsive) gravity filter
 
       // Less sensitive threshold
-      let threshold = 5.0; // m/s^2 (raise to require stronger movement)
+      let threshold = 1.0; // m/s^2 (raise to require stronger movement)
 
       // Debounce
       let lastDir = null;
