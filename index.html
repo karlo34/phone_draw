@@ -1,0 +1,139 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Phone movement direction</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Roboto, sans-serif; display:flex; flex-direction:column; gap:12px; align-items:center; padding:20px; }
+    .box { width:260px; height:260px; border-radius:12px; display:flex; align-items:center; justify-content:center; border:2px solid #222; }
+    .dir { font-size:32px; font-weight:700; }
+    .vals { font-family: monospace; white-space:pre; text-align:left; }
+    button { padding:10px 14px; font-size:16px; }
+  </style>
+</head>
+<body>
+  <h2>Movement direction (demo)</h2>
+  <button id="start">Start sensors / Request permission</button>
+  <div class="box">
+    <div class="dir" id="direction">—</div>
+  </div>
+  <div class="vals" id="vals">acc: x:0.00 y:0.00 z:0.00
+lin: x:0.00 y:0.00 z:0.00
+threshold: 0.35 m/s²</div>
+
+<script>
+(() => {
+  const startBtn = document.getElementById('start');
+  const dirEl = document.getElementById('direction');
+  const vals = document.getElementById('vals');
+
+  // gravity estimate for low-pass filter
+  let gravity = { x: 0, y: 0, z: 0 };
+  const alpha = 0.9; // low-pass factor (0..1). Larger -> slower gravity updates.
+
+  // threshold (tune this)
+  let threshold = 0.35; // m/s^2
+
+  // last detection time to avoid flicker
+  let lastDir = null;
+  let lastChange = 0;
+  const debounceMs = 200;
+
+  function classify(linear) {
+    // Choose dominant axis (absolute value)
+    const ax = linear.x, ay = linear.y, az = linear.z;
+    const absX = Math.abs(ax), absY = Math.abs(ay), absZ = Math.abs(az);
+    const now = Date.now();
+
+    if (absX < threshold && absY < threshold && absZ < threshold) {
+      // essentially no movement
+      if (now - lastChange > debounceMs) {
+        lastDir = 'still';
+        dirEl.textContent = 'still';
+      }
+      return;
+    }
+
+    // pick the largest component (you can prefer x/y only)
+    let dir = 'unknown';
+    if (absX >= absY && absX >= absZ) {
+      dir = ax > 0 ? 'right' : 'left';
+    } else if (absY >= absX && absY >= absZ) {
+      // Note: depending on device orientation, y sign might mean up or down.
+      dir = ay > 0 ? 'down' : 'up';
+    } else {
+      // z is forward/back (out of the screen)
+      dir = az > 0 ? 'towards you' : 'away';
+    }
+
+    // debounce
+    if (dir !== lastDir && now - lastChange > debounceMs) {
+      lastDir = dir;
+      lastChange = now;
+      dirEl.textContent = dir;
+    }
+  }
+
+  function onMotion(e) {
+    // accelerationIncludingGravity is supported on many devices.
+    // Try to use e.acceleration if available (it has gravity removed in some browsers).
+    const acc = e.acceleration && e.acceleration.x !== null ? e.acceleration : e.accelerationIncludingGravity;
+    if (!acc) return;
+
+    // low-pass filter to estimate gravity: gravity = alpha*gravity + (1-alpha)*acc
+    gravity.x = alpha * gravity.x + (1 - alpha) * (acc.x || 0);
+    gravity.y = alpha * gravity.y + (1 - alpha) * (acc.y || 0);
+    gravity.z = alpha * gravity.z + (1 - alpha) * (acc.z || 0);
+
+    // linear acceleration (remove gravity estimate)
+    const lin = {
+      x: (acc.x || 0) - gravity.x,
+      y: (acc.y || 0) - gravity.y,
+      z: (acc.z || 0) - gravity.z
+    };
+
+    // show numbers (rounded)
+    vals.textContent =
+      `acc: x:${(acc.x||0).toFixed(2)} y:${(acc.y||0).toFixed(2)} z:${(acc.z||0).toFixed(2)}\n` +
+      `lin: x:${lin.x.toFixed(2)} y:${lin.y.toFixed(2)} z:${lin.z.toFixed(2)}\n` +
+      `threshold: ${threshold.toFixed(2)} m/s²\n` +
+      `note: if direction mapping is inverted on your device, invert sign in classify()`;
+
+    classify(lin);
+  }
+
+  function startSensors() {
+    // iOS 13+ requires a user gesture and explicit permission.
+    const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent);
+    if (isIOS && typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+      DeviceMotionEvent.requestPermission().then(resp => {
+        if (resp === 'granted') {
+          window.addEventListener('devicemotion', onMotion, { passive: true });
+          startBtn.disabled = true;
+          startBtn.textContent = 'Running';
+        } else {
+          alert('Permission denied for device motion.');
+        }
+      }).catch(err => {
+        alert('DeviceMotion permission error: ' + err);
+      });
+    } else {
+      // non-iOS: just start listening (must be on secure context for some browsers)
+      window.addEventListener('devicemotion', onMotion, { passive: true });
+      startBtn.disabled = true;
+      startBtn.textContent = 'Running';
+    }
+  }
+
+  startBtn.addEventListener('click', startSensors, { once: true });
+
+  // optional: provide simple calibration helpers via keyboard (for desktop testing)
+  window.addEventListener('keydown', e => {
+    if (e.key === '+' || e.key === '=') { threshold = Math.max(0.05, threshold - 0.05); }
+    if (e.key === '-') { threshold += 0.05; }
+  });
+})();
+</script>
+</body>
+</html>
